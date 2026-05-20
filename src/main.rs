@@ -4,7 +4,7 @@
 //! - `commands` — one module per top-level CLI subcommand.
 //! - `config`   — keystore + on-disk layout.
 //!
-//! All subcommands operate against `~/.config/llm-mining/keys/`, encrypted at
+//! All subcommands operate against `~/.config/orogen/wallet-cli/keys/`, encrypted at
 //! rest with Argon2id-derived ChaCha20-Poly1305 keys. The same on-disk format
 //! will be consumed by the operator-daemon (worker-control-plane) when it
 //! needs to sign heartbeats with the same hotkey.
@@ -25,7 +25,7 @@ mod rpc;
                   for the Orogen network."
 )]
 struct Cli {
-    /// Override keystore directory (default `~/.config/llm-mining/keys`).
+    /// Override keystore directory (default `~/.config/orogen/wallet-cli/keys`).
     #[arg(long, env = "OROGEN_KEYSTORE")]
     keystore: Option<std::path::PathBuf>,
 

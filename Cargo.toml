@@ -12,7 +12,7 @@ name = "wallet-cli"
 path = "src/main.rs"
 
 [dependencies]
-wallet-sdk-core = { git = "https://github.com/orogen-network/wallet-sdk-core", rev = "a2ede6e379995560587a003cea3ab5e873dcef41", features = ["ws-rpc"] }
+wallet-sdk-core = { path = "../wallet-sdk-core", features = ["ws-rpc"] }
 
 # CLI
 clap = { version = "4.5", features = ["derive", "env"] }

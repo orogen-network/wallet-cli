@@ -60,12 +60,12 @@ impl Keystore {
     /// Open (and create if missing) the keystore directory.
     ///
     /// If `override_dir` is `Some`, that path is used verbatim; otherwise the
-    /// XDG-compliant `~/.config/llm-mining/keys/` location is used.
+    /// XDG-compliant `~/.config/orogen/wallet-cli/keys/` location is used.
     pub fn open(override_dir: Option<PathBuf>) -> Result<Self> {
         let root = if let Some(p) = override_dir {
             p
         } else {
-            let proj = directories::ProjectDirs::from("net", "llm-mining", "wallet-cli")
+            let proj = directories::ProjectDirs::from("network", "orogen", "wallet-cli")
                 .ok_or_else(|| anyhow!("could not resolve config home"))?;
             proj.config_dir().join("keys")
         };
