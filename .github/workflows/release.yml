@@ -1,0 +1,71 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: build-and-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: dtolnay/rust-toolchain@72e0b3f2339874da45e95c19a5ad418a9994f7a5
+      - name: Restore split-repo sibling dependency
+        run: |
+          if grep -q 'path = "../wallet-sdk-core"' Cargo.toml; then
+            git clone --depth 1 https://github.com/orogen-network/wallet-sdk-core ../wallet-sdk-core
+          fi
+      - name: Build release binary
+        run: cargo build --release --locked
+      - name: Package tarball
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION%-testnet}"
+          PKG="wallet-cli-${VERSION}-x86_64-linux-gnu"
+          GLIBC="$(ldd --version | head -1 | grep -oE '[0-9]+\.[0-9]+$')"
+          mkdir -p "dist/${PKG}"
+          cp target/release/wallet-cli "dist/${PKG}/wallet-cli"
+          cat > "dist/${PKG}/INSTALL.txt" <<EOF
+          wallet-cli ${VERSION} (Orogen Forge testnet)
+
+          This binary is dynamically linked against host glibc. It was built on
+          ubuntu-latest (GitHub Actions) and requires glibc >= 2.34.
+          Build-host glibc: ${GLIBC}.
+
+          Install:
+            chmod +x wallet-cli
+            sudo mv wallet-cli /usr/local/bin/    # or anywhere on PATH
+
+          Point at the live Forge testnet:
+            export OROGEN_RPC_URL=wss://forge-rpc.orogen.network
+
+          Quickstart:
+            wallet-cli new my-operator
+            wallet-cli address my-operator
+            curl -X POST https://faucet.orogen.network/drip-public \\
+              -H 'Content-Type: application/json' \\
+              -d '{"recipient":"<ss58 address>"}'
+            wallet-cli balance my-operator
+            wallet-cli register-operator my-operator --stake 1000000000000
+            wallet-cli heartbeat-test my-operator --submit --epoch <current-epoch>
+
+          OROG has 12 decimals; ss58 prefix 42; MinStake 1 OROG (1000000000000 plancks).
+          Gateway: https://gateway.orogen.network
+          EOF
+          tar -C dist -czf "${PKG}.tar.gz" "${PKG}"
+          sha256sum "${PKG}.tar.gz" > "${PKG}.tar.gz.sha256"
+      - name: Upload to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            wallet-cli-*-x86_64-linux-gnu.tar.gz \
+            wallet-cli-*-x86_64-linux-gnu.tar.gz.sha256 \
+            --clobber
