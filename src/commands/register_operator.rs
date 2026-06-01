@@ -1,65 +1,102 @@
-use anyhow::Result;
-use clap::Parser;
-use serde::Serialize;
+//! `register-operator` — submit `OperatorStake::register(stake, attestation_hash)`.
+//!
+//! RFC-0003: an operator binds a stake-backed hotkey identity on-chain. The
+//! extrinsic reserves `stake` (>= runtime `MinStake`) from the caller's free
+//! balance for the lifetime of the registration and records the operator's
+//! current attestation hash. Reservation is released on `unregister`.
+//!
+//! `attestation_hash` is an `H256` referencing the operator's attestation
+//! report (from `attestation-service`). On the current Forge testnet runtime
+//! the value is not yet validated on-chain, so a zero hash is accepted for
+//! bring-up; pass `--attestation-hash 0x..` once attestation is wired.
 
-use wallet_sdk_core::keys::Sr25519Keypair;
-use wallet_sdk_core::signing::{sign_blake2_domain, DOMAIN_REGISTER_OPERATOR};
+use anyhow::{anyhow, Context, Result};
+use clap::Parser;
+use subxt::dynamic::Value;
+use subxt::tx::dynamic as dynamic_tx;
+use subxt_signer::bip39::Mnemonic as SubxtMnemonic;
+use subxt_signer::sr25519::Keypair as SubxtKeypair;
 
 use crate::config::Keystore;
+use crate::rpc::{connect_blocking, DEFAULT_RPC_URL};
 
-/// Sign a `register_operator` call payload. Does NOT submit on-chain — that
-/// awaits a real RPC endpoint and is gated behind a follow-up RFC.
 #[derive(Parser, Debug)]
 pub struct Args {
+    /// Operator keystore account name (the stake-backed hotkey).
     pub name: String,
-    /// Stake amount (atomic units).
+
+    /// Stake to reserve, in atomic units (plancks). Must be >= runtime
+    /// `MinStake` (1_000_000_000_000 = 1 OROG on Forge).
     #[arg(long)]
     pub stake: u128,
-    /// Comma-separated list of GPU class strings, e.g. "H100,A100".
-    #[arg(long)]
-    pub gpu_classes: String,
+
+    /// Attestation report hash (`H256`), hex with optional `0x` prefix.
+    /// Defaults to the zero hash for testnet bring-up.
+    #[arg(
+        long,
+        default_value = "0x0000000000000000000000000000000000000000000000000000000000000000"
+    )]
+    pub attestation_hash: String,
+
     #[arg(long)]
     pub passphrase: Option<String>,
-}
 
-#[derive(Debug, Serialize)]
-struct Payload {
-    call: &'static str,
-    stake: u128,
-    gpu_classes: Vec<String>,
-    nonce: u64,
+    #[arg(long, env = "OROGEN_RPC_URL", default_value = DEFAULT_RPC_URL)]
+    pub rpc_url: String,
 }
 
 pub fn run(args: Args, ks: &Keystore) -> Result<()> {
     let pw = super::resolve_passphrase(args.passphrase.as_deref())?;
-    let m = ks.unlock(&args.name, &pw)?;
-    let kp = Sr25519Keypair::from_mnemonic(&m)?;
+    let mnemonic = ks.unlock(&args.name, &pw)?;
 
-    let payload = Payload {
-        call: "register_operator",
-        stake: args.stake,
-        gpu_classes: args
-            .gpu_classes
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .collect(),
-        nonce: now_nonce(),
-    };
-    let body = serde_json::to_vec(&payload)?;
-    // Domain-prefixed signature (security audit M-W-04).
-    let sig = sign_blake2_domain(&kp, DOMAIN_REGISTER_OPERATOR, &body);
+    let phrase = mnemonic.phrase();
+    let bip39 = SubxtMnemonic::parse(phrase.as_str()).context("re-parse mnemonic")?;
+    let signer =
+        SubxtKeypair::from_phrase(&bip39, None).context("derive subxt-signer keypair")?;
+
+    let attestation = parse_h256(&args.attestation_hash)
+        .with_context(|| format!("invalid --attestation-hash {}", args.attestation_hash))?;
+
+    let (rt, client) = connect_blocking(&args.rpc_url)?;
+
+    let call = dynamic_tx(
+        "OperatorStake",
+        "register",
+        vec![
+            ("stake", Value::u128(args.stake)),
+            ("attestation_hash", Value::from_bytes(attestation)),
+        ],
+    );
+
+    let hash = rt.block_on(async {
+        client
+            .tx()
+            .sign_and_submit_default(&call, &signer)
+            .await
+            .context("sign_and_submit_default OperatorStake::register")
+    })?;
+
     println!(
-        "{{\"payload\":{},\"signature\":\"0x{}\"}}",
-        serde_json::to_string(&payload)?,
-        hex::encode(sig)
+        "submitted register operator={} stake={} attestation_hash={} tx_hash=0x{}",
+        args.name,
+        args.stake,
+        args.attestation_hash,
+        hex::encode(hash.as_ref())
     );
     Ok(())
 }
 
-fn now_nonce() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+/// Parse a 32-byte hex string (with optional `0x` prefix) into raw bytes.
+pub(crate) fn parse_h256(s: &str) -> Result<[u8; 32]> {
+    let stripped = s.strip_prefix("0x").unwrap_or(s);
+    if stripped.len() != 64 {
+        return Err(anyhow!(
+            "expected 32-byte (64 hex char) H256, got {} hex chars",
+            stripped.len()
+        ));
+    }
+    let bytes = hex::decode(stripped).context("hex decode H256")?;
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    Ok(out)
 }
