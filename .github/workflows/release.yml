@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: dtolnay/rust-toolchain@72e0b3f2339874da45e95c19a5ad418a9994f7a5
+      - uses: dtolnay/rust-toolchain@stable
       - name: Restore split-repo sibling dependency
         run: |
           if grep -q 'path = "../wallet-sdk-core"' Cargo.toml; then
