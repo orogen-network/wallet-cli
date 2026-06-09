@@ -2,9 +2,8 @@
 //! `--submit`) submit the on-chain `OperatorStake::heartbeat` extrinsic.
 //!
 //! Two modes:
-//!   * default — print a domain-signed heartbeat JSON for the gateway
-//!     `/internal/heartbeat` ingest (verify a hotkey before pointing the
-//!     worker daemon at it).
+//!   * default — print a domain-signed heartbeat envelope that can be POSTed to
+//!     the gateway `/v1/operator/heartbeat` ingest.
 //!   * `--submit --epoch N` — submit the on-chain liveness heartbeat
 //!     `OperatorStake::heartbeat(epoch_number, capabilities_summary_hash,
 //!     attestation_report_hash)`. The runtime requires
@@ -36,6 +35,21 @@ pub struct Args {
     pub gpu_model: String,
     #[arg(long, default_value = "0")]
     pub free_kv_blocks: u32,
+    /// Public URL where the gateway can reach this operator's worker.
+    #[arg(long, default_value = "")]
+    pub endpoint_url: String,
+    /// Model served by this worker. Repeat for multiple models.
+    #[arg(long = "model")]
+    pub models: Vec<String>,
+    /// Price in protocol atomic units per million tokens for routing.
+    #[arg(long, default_value = "0")]
+    pub price_per_million_tokens: u64,
+    /// Operator region used by gateway routing filters.
+    #[arg(long, default_value = "US")]
+    pub geo_region: String,
+    /// ed25519 public key used by the worker to sign RFC-0001 receipts.
+    #[arg(long, default_value = "")]
+    pub receipt_pubkey_hex: String,
     #[arg(long)]
     pub passphrase: Option<String>,
 
@@ -70,6 +84,11 @@ struct Heartbeat {
     timestamp_ms: u64,
     gpu_model: String,
     free_kv_blocks: u32,
+    endpoint_url: String,
+    models: Vec<String>,
+    price_per_million_tokens: u64,
+    geo_region: String,
+    receipt_pubkey_hex: String,
 }
 
 pub fn run(args: Args, ks: &Keystore) -> Result<()> {
@@ -88,17 +107,22 @@ pub fn run(args: Args, ks: &Keystore) -> Result<()> {
         timestamp_ms: now_ms(),
         gpu_model: args.gpu_model.clone(),
         free_kv_blocks: args.free_kv_blocks,
+        endpoint_url: args.endpoint_url.clone(),
+        models: args.models.clone(),
+        price_per_million_tokens: args.price_per_million_tokens,
+        geo_region: args.geo_region.clone(),
+        receipt_pubkey_hex: args.receipt_pubkey_hex.clone(),
     };
-    let body = serde_json::to_vec(&hb)?;
+    let body = serde_json::to_string(&hb)?;
     // Domain-prefixed signature (security audit M-W-04): the heartbeat tag
     // makes the resulting signature unusable as a register_operator / stake /
     // ad-hoc-message signature even if an attacker can shape the JSON.
-    let sig = sign_blake2_domain(&kp, DOMAIN_HEARTBEAT, &body);
-    println!(
-        "{{\"heartbeat\":{},\"signature\":\"0x{}\"}}",
-        serde_json::to_string(&hb)?,
-        hex::encode(sig)
-    );
+    let sig = sign_blake2_domain(&kp, DOMAIN_HEARTBEAT, body.as_bytes());
+    let envelope = serde_json::json!({
+        "heartbeat_json": body,
+        "signature": format!("0x{}", hex::encode(sig)),
+    });
+    println!("{}", serde_json::to_string(&envelope)?);
     Ok(())
 }
 

@@ -153,7 +153,7 @@ fn transfer_reports_unreachable_chain_clearly() {
 fn heartbeat_test_signs_payload() {
     let tmp = TempDir::new().unwrap();
     bin(&tmp).args(["new", "carol"]).assert().success();
-    bin(&tmp)
+    let out = bin(&tmp)
         .args([
             "heartbeat-test",
             "carol",
@@ -161,10 +161,25 @@ fn heartbeat_test_signs_payload() {
             "H100-SXM-80GB",
             "--free-kv-blocks",
             "1024",
+            "--endpoint-url",
+            "https://operator.example",
+            "--model",
+            "mock-model-7b",
+            "--receipt-pubkey-hex",
+            "ababcdefababcdefababcdefababcdefababcdefababcdefababcdefababcdef",
         ])
         .assert()
         .success()
-        .stdout(contains("signature"));
+        .stdout(contains("heartbeat_json"))
+        .stdout(contains("signature"))
+        .get_output()
+        .stdout
+        .clone();
+    let parsed: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    let body = parsed["heartbeat_json"].as_str().unwrap();
+    assert!(body.contains("operator_ss58"));
+    assert!(body.contains("endpoint_url"));
+    assert!(body.contains("receipt_pubkey_hex"));
 }
 
 #[test]

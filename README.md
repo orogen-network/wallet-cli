@@ -57,6 +57,17 @@ wallet-cli register-operator my-operator \
 
 # 4. Submit an on-chain liveness heartbeat for the current epoch.
 wallet-cli heartbeat-test my-operator --submit --epoch <current-epoch>
+
+# 5. Advertise the worker to the public gateway. Use the receipt public key
+#    printed by `python -m infer_worker_vllm --generate-keypair`.
+wallet-cli heartbeat-test my-operator \
+  --endpoint-url https://<your-worker-host> \
+  --model mock-model-7b \
+  --price-per-million-tokens 1500 \
+  --receipt-pubkey-hex <64-hex ed25519 public key> \
+  | curl -sS -X POST https://gateway.orogen.network/v1/operator/heartbeat \
+      -H 'Content-Type: application/json' \
+      -d @-
 ```
 
 Forge is a test-mode preview: the gateway runs in test mode, the attestation
@@ -79,14 +90,14 @@ prompt for the passphrase unless `--passphrase <pw>` is supplied.
 | `sign <name> <payload_hex>` | Sign an arbitrary hex payload with the account hotkey. |
 | `submit-extrinsic <payload_hex>` | Submit an extrinsic. Wraps the payload in `system.remark` by default; `--raw` forwards a pre-encoded SCALE blob via `author_submitExtrinsic`. |
 | `register-operator <name> --stake <plancks> [--attestation-hash 0x..]` | Submit `OperatorStake::register(stake, attestation_hash)`. |
-| `heartbeat-test <name>` | Print a domain-signed RFC-0003 heartbeat payload for gateway ingest. With `--submit --epoch <n>` it submits the on-chain `OperatorStake::heartbeat` extrinsic instead. |
+| `heartbeat-test <name>` | Print a domain-signed RFC-0003 heartbeat envelope for public gateway ingest. With `--submit --epoch <n>` it submits the on-chain `OperatorStake::heartbeat` extrinsic instead. |
 | `stake <name> --amount <plancks>` | Produce a domain-signed stake payload (signature only; no on-chain submission). |
 
 ### Common flags
 
-- `--rpc-url <url>` / `OROGEN_RPC_URL` — node endpoint (commands that talk to chain).
-- `--keystore <dir>` / `OROGEN_KEYSTORE` — keystore directory override.
-- `--passphrase <pw>` — supply the unlock passphrase non-interactively.
+- `--rpc-url <url>` / `OROGEN_RPC_URL`, node endpoint for commands that talk to chain.
+- `--keystore <dir>` / `OROGEN_KEYSTORE`, keystore directory override.
+- `--passphrase <pw>`, supply the unlock passphrase non-interactively.
 
 ### register-operator
 
@@ -115,9 +126,11 @@ wallet-cli heartbeat-test <name> --submit --epoch <n>
 attestation_report_hash)`. The runtime requires `epoch >= last_heartbeat_epoch`
 and an advance of at most `MaxHeartbeatEpochAdvance` (1 on Forge), so pass the
 current epoch. `--capabilities-hash` and `--attestation-hash` default to the
-zero hash. Without `--submit`, the command prints a signed gateway heartbeat
-payload (for verifying a hotkey before pointing the worker daemon at it) and
-does not touch the chain.
+zero hash. Without `--submit`, the command prints a signed JSON envelope for
+`POST /v1/operator/heartbeat` and does not touch the chain. Include
+`--endpoint-url`, one or more `--model` values, and `--receipt-pubkey-hex` when
+you want the public gateway to route completions to the worker and verify its
+RFC-0001 receipts.
 
 ## Notes
 
