@@ -82,7 +82,7 @@ prompt for the passphrase unless `--passphrase <pw>` is supplied.
 | Command | Purpose |
 |---|---|
 | `new <name>` | Create a new account (sr25519 + EVM-bridge key from one mnemonic). |
-| `import <name> --mnemonic "<words>"` | Import an existing account from a BIP-39 mnemonic. |
+| `import <name>` | Import an existing account from a BIP-39 mnemonic. The phrase is read via a non-echoing interactive prompt (the safe path); `--mnemonic "<words>"` is an explicit opt-in for scripted use and exposes the phrase to the process listing and shell history. |
 | `list` | List accounts in the keystore. |
 | `address <name>` | Print the ss58 and EVM addresses for an account. |
 | `balance <account>` | Query the free balance from `System::Account` over RPC. |
